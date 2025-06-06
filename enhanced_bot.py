@@ -1,4 +1,4 @@
-# ✅ Bot: yuklab olish + telegramga yuborish + progress + nom tozalash + cross-platform tmp + bekor qilish tugmasi
+# ✅ Bot: yuklab olish + telegramga yuborish (fayl sifatida) + progress + tarix + tugmalar
 
 import telebot
 import requests
@@ -8,13 +8,15 @@ from threading import Thread
 from telebot import types
 import tempfile
 import re
+from collections import defaultdict
 
-BOT_TOKEN = os.getenv("8015493310:AAHY_qlUtnejd_mIusC1GfhsAJdzzty6C6c") or '8015493310:AAHY_qlUtnejd_mIusC1GfhsAJdzzty6C6c'
-ADMIN_ID = int(os.getenv("1790455114") or 1790455114)
+BOT_TOKEN = os.getenv("BOT_TOKEN") or '8015493310:AAHY_qlUtnejd_mIusC1GfhsAJdzzty6C6c'
+ADMIN_ID = int(os.getenv("ADMIN_ID") or 1790455114)
 
 bot = telebot.TeleBot(BOT_TOKEN)
 progress_message_id = {}
 cancel_flags = {}
+user_history = defaultdict(list)
 
 # ✅ Fayl nomini xavfsiz qilish
 def sanitize_filename(filename):
@@ -43,34 +45,10 @@ def download_file_with_progress(url, file_path, chat_id):
                     except:
                         pass
 
-# ✅ Telegramga yuborishdagi progress
-class ProgressSender:
-    def __init__(self, chat_id, file_path, caption):
-        self.chat_id = chat_id
-        self.file_path = file_path
-        self.caption = caption
-        self.message = bot.send_message(chat_id, "📤 Telegramga yuborilmoqda: 0%")
-
-    def update_progress(self, current, total):
-        percent = int(current * 100 / total)
-        try:
-            bot.edit_message_text(f"📤 Telegramga yuborilmoqda: {percent}%", self.chat_id, self.message.message_id)
-        except:
-            pass
-
-    def send(self):
-        file_size = os.path.getsize(self.file_path)
-        with open(self.file_path, 'rb') as f:
-            def reader():
-                sent = 0
-                while True:
-                    data = f.read(65536)
-                    if not data:
-                        break
-                    sent += len(data)
-                    self.update_progress(sent, file_size)
-                    yield data
-            bot.send_video(self.chat_id, reader(), caption=self.caption)
+# ✅ Faylni hujjat sifatida yuborish
+def send_file(chat_id, file_path, caption):
+    with open(file_path, 'rb') as f:
+        bot.send_document(chat_id, f, caption=caption)
 
 # ✅ Inline tugmalar
 def get_inline_keyboard():
@@ -89,12 +67,32 @@ def get_cancel_keyboard():
     )
     return markup
 
-# ✅ Start
+# ✅ /start komandasi
+def main_menu():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add('/start', '/history', '/files')
+    return markup
+
 @bot.message_handler(commands=['start'])
 def handle_start(message):
-    bot.send_message(message.chat.id, "🎬 MP4 URL yuboring, men yuklab, sizga qaytadan yuboraman.")
+    bot.send_message(message.chat.id, "🎬 MP4 URL yuboring, men yuklab, sizga fayl ko‘rinishida yuboraman.", reply_markup=main_menu())
 
-# ✅ URL qabul qilish
+# ✅ /history komandasi
+@bot.message_handler(commands=['history'])
+def handle_history(message):
+    history = user_history.get(message.chat.id, [])
+    if not history:
+        bot.send_message(message.chat.id, "📭 Siz hali hech qanday fayl yubormagansiz.")
+    else:
+        msg = "🕓 Oxirgi yuborilgan fayllar:\n" + "\n".join(f"• {f}" for f in history[-5:])
+        bot.send_message(message.chat.id, msg)
+
+# ✅ /files komandasi
+@bot.message_handler(commands=['files'])
+def handle_files(message):
+    bot.send_message(message.chat.id, "📂 Fayllar serverda saqlanmaydi. Har bir yuborishdan so‘ng o‘chiriladi.")
+
+# ✅ MP4 URL qabul qilish
 @bot.message_handler(func=lambda message: message.text and message.text.lower().endswith('.mp4'))
 def handle_mp4_url(message):
     url = message.text.strip()
@@ -111,8 +109,8 @@ def handle_mp4_url(message):
         try:
             download_file_with_progress(url, file_path, chat_id)
             caption = f"✅ Yuklash tugadi\n📂 Fayl: {filename}\n📦 Hajm: {os.path.getsize(file_path) / (1024*1024):.2f} MB"
-            progress = ProgressSender(chat_id, file_path, caption)
-            progress.send()
+            send_file(chat_id, file_path, caption)
+            user_history[chat_id].append(filename)
             bot.send_message(chat_id, "🎉 Tayyor!", reply_markup=get_inline_keyboard())
         except Exception as e:
             bot.send_message(chat_id, f"❌ Xatolik: {str(e)}")
